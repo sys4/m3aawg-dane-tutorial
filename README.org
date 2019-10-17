@@ -1,0 +1,45 @@
+#+Title: M3AAWG DANE Tutorial
+#+Author: Patrick Koetter & Carsten Strotmann
+#+Date: <2019-10-17 Thu>
+
+These files are used to create the tutorial environment for the DANE
+tutorial at the M3AAWG meeting.
+
+The Ansible playbook has been used and tested with public cloud server
+provider such as DigitalOcean (https://digitalocean.com) und Vultr
+(https://vultr.com). It will probably work with ever Debian 10
+installation. Depending on the names of the network interfaces, you
+might need to adjust ansible variables containing the interface names
+(like =eth0= or =ens3= etc).
+
+Also, for DNSSEC, the tutorial needs a DNSSEC signed domain that you
+use as the parent domain. In the tutorial we are using =dane.onl=. If
+you want to create the tutorial, you need to operate your own parent
+domain, have it DNSSEC signed and in the DNSSEC trust-chain. The
+ansible scripts use =nsupdate= to send dynamic DNS updates to the
+primary master server of this parent domain to create the DNS
+delegation. So the parent domain must be configured for dynamic DNS
+secured by the TISG (Transaction Signature) key =dane.key=.
+
+You can create your own TSIG key with
+
+#+BEGIN_EXAMPLE
+tsig-keygen dane.key
+#+END_EXAMPLE
+
+Our BIND 9 configuration in =named.conf= for the parent zone looks
+like this:
+
+#+BEGIN_EXAMPLE
+key "dane.onl" {
+        algorithm hmac-sha256;
+        secret "kQ08G+7S8ToYnNjqB8iKHFnR6cF+17sAFStDtfWtAwE=";
+};
+
+zone "dane.onl" {
+     type master;
+     allow-update { key dane.onl; };
+     auto-dnssec maintain;
+     file "master/dane.onl";
+};
+#+END_EXAMPLE
