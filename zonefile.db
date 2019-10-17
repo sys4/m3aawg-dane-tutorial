@@ -1,0 +1,11 @@
+{% set mailhost = "mail" + ansible_hostname[-2:] %}
+$TTL 60
+@     IN SOA  dns{{ ansible_hostname[-2:] }}.dane.onl. . 1001 2h 30m 41d 60
+      IN NS   dns{{ ansible_hostname[-2:] }}.dane.onl.
+      IN A    {{ ansible_eth0.ipv4.address }}
+      IN AAAA {{ ansible_eth0.ipv6[0].address }}
+      IN MX   10 mail
+www   IN CNAME @
+dns   IN CNAME @
+mail  IN A    {{ hostvars[mailhost]['ansible_eth0']['ipv4']['address'] }}
+mail  IN AAAA {{ hostvars[mailhost]['ansible_eth0']['ipv6'][0]['address'] }}

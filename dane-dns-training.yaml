@@ -1,0 +1,80 @@
+---
+- name: Install DANE/DNSSEC Tutorial Mail Server
+  hosts: mail
+  become: true
+  tasks:
+  - name: Install postfix MTA
+    apt: name="{{ item }}"
+    loop:
+      - postfix
+      - swaks
+      - ldnsutils
+      - socat
+      - git
+      - emacs-nox
+      - mg
+      - nano
+      - vim
+- name: Install DANE/DNSSEC Tutorial DNS Server
+  hosts: dns
+  become: true
+  tasks:
+  - name: Install BIND 9 DNS-Server
+    apt: name="{{ item }}"
+    loop:
+      - dnsutils
+      - bind9
+      - emacs-nox
+      - mg
+      - nano
+      - vim
+  - name: Disable AppArmor
+    command: "/usr/sbin/aa-teardown"
+  - name: Create Key directory
+    file: path="/etc/bind/keys" state="directory" mode="0750" owner="bind"
+  - name: Add User
+    user: name="user" group="sudo" password="$1$daneandd$r5sbaWADTVC1cwIdSB5vw0"
+  - name: Copy BIND 9 Configuration and Zonefile
+    template: src="{{ item }}" dest="/etc/bind" owner="root" group="bind" mode="0440"
+    loop:
+      - named.conf
+      - zonefile.db
+      - dane.key
+      - nsupdate.script
+    notify: "kick_bind"
+  - name: Create Delegation
+    command: nsupdate -k /etc/bind/dane.key /etc/bind/nsupdate.script
+  - name: Enable Password Authentication
+    lineinfile: path="/etc/ssh/sshd_config" regexp="^#PasswordAuthentication yes" line="PasswordAuthentication yes"
+    notify: "kick_ssh"
+  handlers:
+    - name: "kick_bind"
+      service: name="bind9" state="restarted"
+    - name: "kick_ssh"
+      service: name="ssh" state="restarted"
+- name: Get x509 Cert on Mail Server
+  hosts: mail
+  become: true
+  tasks:
+  - name: Add User
+    user: name="user" group="sudo" password="$1$daneandd$r5sbaWADTVC1cwIdSB5vw0"
+  - name: Clone ACME.SH
+    git: repo="https://github.com/Neilpang/acme.sh" dest="/root/acme.sh"
+  - name: Get Certificate
+    shell: "/root/acme.sh/acme.sh --issue  -d mail.z{{ ansible_hostname[-2:] }}.dane.onl  --standalone"
+    ignore_errors: yes
+    args:
+      creates: "/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.crt"
+  - name: Copy Postfix configuration
+    template: src="{{ item }}" dest="/etc/postfix" owner="root" group="postfix" mode="0644"
+    loop:
+      - main.cf
+    notify: "kick_postfix"
+  - name: Enable Password Authentication
+    lineinfile: path="/etc/ssh/sshd_config" regexp="^#PasswordAuthentication yes" line="PasswordAuthentication yes"
+    notify: "kick_ssh"
+  handlers:
+    - name: "kick_postfix"
+      service: name="postfix" state="restarted"
+    - name: "kick_ssh"
+      service: name="ssh" state="restarted"

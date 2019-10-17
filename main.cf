@@ -1,0 +1,32 @@
+smtpd_banner = $myhostname ESMTP $mail_name
+biff = no
+inet_interfaces = all
+myhostname = mail.z{{ ansible_hostname[-2:] }}.dane.onl
+append_dot_mydomain = no
+compatibility_level = 2
+delay_warning_time = 4h
+readme_directory = no
+smtpd_log_access_permit_actions = static:all
+
+smtpd_tls_security_level = may
+smtpd_tls_loglevel = 1
+smtpd_tls_received_header = yes
+smtpd_tls_cert_file=/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.cer
+smtpd_tls_key_file=/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.key
+smtpd_tls_session_cache_database = btree:${data_directory}/smtpd_scache
+smtpd_tls_protocols = !SSLv2 !SSLv3
+smtpd_tls_ciphers = medium
+smtpd_tls_exclude_ciphers =
+        RC4
+        aNULL
+        SEED-SHA
+        EXP
+        EXPORT
+        LOW
+
+smtp_tls_loglevel = 1
+smtp_tls_cert_file=/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.cer
+smtp_tls_key_file=/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.key
+smtp_tls_session_cache_database = btree:${data_directory}/smtp_scache
+smtp_tls_CAfile = /etc/ssl/certs/ca-certificates.crt
+alias_maps = hash:/etc/aliases
