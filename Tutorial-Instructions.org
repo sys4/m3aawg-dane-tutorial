@@ -1,0 +1,327 @@
+#+Title: DNSSEC & DANE Tutorial
+#+Author: Carsten Strotmann
+#+Date: <2019-10-14 Mon>
+
+The DNSSEC & DANE tutorial has taken place at the M3AAWG Meeting in
+Montreal, 14th October 2019.
+
+
+* Mail and DNS-Server VMs
+
+ * The VMs has a selection of popular unix editors installed
+   - emacs
+   - vim
+   - nano
+   - mg (MicroEmacs)
+
+* Hostnames, Usernames and Passwords
+
+Login via SSH (OpenSSH, Putty, Google Chrome with SSH app)
+
+ * Username for VMs: =user=
+ * Password: =m3aawg=
+ * Root-Shell with =sudo -s= and user passwordh
+ * Please replace XX in the instructions with your tutorial
+   participant number (also the number of your VM, check with the
+   command hostname) Hostnames are =mail.zXX.dane.onl= and
+   =dns.zXX.dane.onl=
+
+* status of the server infrastructure at start of the tutorial
+
+At the start of the tutorial every participant has one mail-server
+(hostname =mailXX=) and one DNS-server available.
+
+The mail-server has the open source MTA /postfix/ installed and
+configured for TLS communication using a Let's Encrypt x509
+certificate. The mail server receives mail for the domain
+=zXX.dane.onl.=
+
+The DNS server runs the open source DNS authoritative server software
+/BIND 9/ for the DNS zone =zXX.dane.onl.=.
+
+Out plan for the tutorial
+
+ * enable outgoing DANE checking on the mail-server
+ * sign the zone =zXX.dane.onl.= to enable outgoing DANE
+ * publish TLSA-Records for the x509 certificates used on the
+   mail-server
+
+* Outgoing DANE for our mailserver
+
+ * In this step, we install a DNSSEC validating DNS-resolver on the
+   mail-server (best practice for other reasons as well) and enable
+   outgoing DANE checks for the postfix mail server
+
+** Step 1 -- install a DNSSEC validating DNS resolver
+
+ * we work on our mail-server
+ * we install the /Unbound/ (https://unbound.net) DNS-resolver
+   software and the DNS utilities (like =dig=, =nslookup= and =host=)
+
+#+BEGIN_EXAMPLE
+mailXX# apt install unbound dnsutils
+#+END_EXAMPLE
+ * Unbound does not require extra configuration for DNSSEC, it is a
+   DNSSEC validating DNS-Resolver by default. So we just start the
+   software and we /enable/ it so that it will be started on reboot:
+
+#+BEGIN_EXAMPLE
+mailXX# systemctl enable --now unbound
+#+END_EXAMPLE
+
+ * now we change the operating systems DNS resolver setting to use the
+   local installed Unbound resolver. We do it in a very basic and "not
+   recommended for production use" way here to not stretch the
+   tutorial too long. In production you would like to deploy these
+   kind of changes through DHCP or through a configuration management
+   system:
+
+#+BEGIN_EXAMPLE
+mailXX# echo "nameserver 127.0.0.1" > /etc/resolv.conf
+#+END_EXAMPLE
+ * now all DNS communication with the Internet should be DNSSEC
+   validated (given that the domain requested contains DNSSEC data).
+   We test this with a query for the IPv6 address of the sys4
+   mailserver (we know that the sys4.de domain is DNSSEC enabled).
+#+BEGIN_EXAMPLE
+mailXX# dig mail.sys4.de aaaa +multi +adflag
+#+END_EXAMPLE
+ * The command option =+dnssec= enables DNSSEC data in the output
+ * The command option =+adflag= requests the AD-Flag in the output
+ * It is important to see the AD-Flag in the answer like in the
+   example output below. AD stands for "Authentic Data" and is the
+   indication that DNSSEC validation works as expected.
+
+#+BEGIN_EXAMPLE
+; <<>> DiG 9.11.5-P4-5.1-Debian <<>> mail.sys4.de aaaa +dnssec +multi
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 41114
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 2, AUTHORITY: 0, ADDITIONAL: 1
+
+;; OPT PSEUDOSECTION:
+; EDNS: version: 0, flags: do; udp: 4096
+;; QUESTION SECTION:
+;mail.sys4.de.          IN AAAA
+
+;; ANSWER SECTION:
+mail.sys4.de.           3600 IN AAAA 2001:1578:400:111::7
+mail.sys4.de.           3600 IN RRSIG AAAA 8 3 3600 (
+                                20191020134757 20191013181534 55243 sys4.de.
+                                gjaK+rQApj5UlyAtTtcuWCceClWPDFcag6+CkwH+u2KT
+                                pDC2vDTY6RdHynYg6RCMWyDGEjHlpPwOo3pTfHUqMQo9
+                                5zLOEuJSDQUOy2eKPOZaWfq1uNcjPutltgj2yQdFRMTw
+                                IGGP7bx/ttCtaYyEOAHjuMllQxD/koI/YXoO6tA= )
+
+;; Query time: 652 msec
+;; SERVER: 127.0.0.1#53(127.0.0.1)
+;; WHEN: Mon Oct 14 01:54:34 UTC 2019
+;; MSG SIZE  rcvd: 236
+
+#+END_EXAMPLE
+
+** Step 2 -- enable DANE in postfix
+
+ * we continue to work on the mail-server
+ * the next configuration steps enable DANE checking on the postfix
+   mail-server. DANE checking requires the use of a DNSSEC validating
+   DNS-resolver, like the one we've installed in step 1
+ * the new configuration will be written into =/etc/postfix/main.cf=
+   and also applied to the running postfix mail-server instance
+ * *don't forget to replace the XX in the commands with your
+   participant number*
+#+BEGIN_EXAMPLE
+postconf -e 'myhostname = mail.zXX.dane.onl'
+postconf -e 'mydomain = zXX.dane.onl'
+postconf -e 'mydestination = $myhostname, $mydomain'
+postconf -e 'smtp_tls_loglevel = 1'
+#+END_EXAMPLE
+ * Test encrypted transport to the destination:
+#+BEGIN_EXAMPLE
+swaks --server localhost --tls --to m3aawg@sys4.de --from user@mail.zXX.dane.onl
+#+END_EXAMPLE
+ * Note that the server logs a "Trusted" connection:
+#+BEGIN_EXAMPLE
+# grep Trusted /var/log/mail.log
+Oct 14 14:36:24 mail01 postfix/smtp[6691]: Trusted TLS connection established to mail.sys4.de[194.126.158.132]:25: TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits)
+#+END_EXAMPLE
+** Step 3 -- enable DANE, send mail and check log files
+ * Now enable DANE:
+#+BEGIN_EXAMPLE
+postconf -e "smtp_tls_security_level = dane"
+postconf -e "smtp_dns_support_level = dnssec"
+#+END_EXAMPLE
+ * now we test outgoing DANE. We expect that if we send mail from our
+   mail-server towards a mail-server that published DANE information
+   in DNS, the connection will be *verified* instead of *trusted*.
+   We try to send mail to a test-account in the sys4.de mail-domain.
+   The mail will be be accepted by the remote server and the sys4.de
+   mail-server will respond back with a reply mail.
+#+BEGIN_EXAMPLE
+swaks --server localhost --tls --to m3aawg@sys4.de --from user@mail.zXX.dane.onl
+#+END_EXAMPLE
+ * Note that this time Postfix logs a "Verified" connection:
+#+BEGIN_EXAMPLE
+# grep Verified /var/log/mail.log
+Oct 14 14:42:07 mail02 postfix/smtp[6963]: Verified TLS connection established to mail.sys4.de[194.126.158.132]:25: TLSv1.2 with cipher ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits)
+#+END_EXAMPLE
+* Configuration for Incoming DANE
+Our DNS-zone =zXX.dane.onl= does not have DNSSEC information, but
+DNSSEC is essential for using DANE for incoming mail. DNSSEC will be
+used to verify the TLSA-Record that itself is used by the delivering
+mail-server to verify the x509 certificate of the receiving (our)
+mail-server.
+** Step 1 -- DNSSEC sign the zone
+ * we change the zone configuration for the BIND 9 DNS server in
+   =/etc/bind/named.conf= on our DNS-Server machine =dns.zXX.dane.onl=
+   to look like this
+#+BEGIN_EXAMPLE
+     zone "zXX.dane.onl" IN {
+         serial-update-method date;
+         type master;
+         file "zonefile.db";
+         key-directory "keys";
+         inline-signing yes;
+         auto-dnssec maintain;
+     };
+#+END_EXAMPLE
+ * the configuration =serial-update-method date;= tells the BIND 9
+   server to use a date formatted =YYMMDDcc= (cc = changes this day)
+   format for the SOA serial number of the signed zone. This is
+   independent of the SOA serial number used in the unsigned DNS
+   zonefile, were we will use a counted (non-date) SOA number.
+ * the configuration =key-directory “keys”;= tells BIND 9 where the
+   DNSSEC keys are found, relative to the BIND 9 home directory
+   =/etc/bind=
+ * =inline-signing yes;= configures a particular type of DNSSEC
+   signing where the administrators can still work with a plain,
+   unsigned zonefile and BIND 9 will add the DNSSEC information
+   whenever the zonefile has been changed and reloaded. In this mode,
+   it is important to increment the SOA serial number of the unsigned
+   zonefile =zonefile.db= on every change of the file.
+ * =auto-dnssec maintain;= tells the BIND 9 server to maintain all
+   DNSSEC information automatically, like refreshing the signatures
+   before they expire.
+** Step 2 - generating DNSSEC keys
+ * as the next step, we're creating the DNSSEC keys for signing the
+   zonefile. Most DNSSEC configurations use two key-pairs, one is
+   called the Zone-Signing-Key (ZSK) and the other is called the
+   Key-Signing-Key (KSK). The ZSK we're about to create will use RSA
+   with a SHA256 hash and will be 1536bit large. The files will be
+   placed in the directory =/etc/bind/keys=:
+#+BEGIN_EXAMPLE
+dnssec-keygen -a RSASHA256 -b 1536 -K /etc/bind/keys -n ZONE zXX.dane.onl
+#+END_EXAMPLE
+ * now on to the KSK, the command is almost the same, but the size of
+   the key is larger (2048bit) and the KSK flag is set on the key:
+#+BEGIN_EXAMPLE
+dnssec-keygen -a RSASHA256 -b 2048 -K /etc/bind/keys -f KSK -n ZONE zXX.dane.onl
+#+END_EXAMPLE
+ * there should now be four key-files in the =/etc/bind/keys=
+   directory
+#+BEGIN_EXAMPLE
+ls -l /etc/bind/keys
+#+END_EXAMPLE
+ * it is important that the BIND 9 DNS-server can read the files. On
+   Debian 10 Linux (which we use here) the BIND 9 server process runs
+   as user =bind=, so we change the ownership of all files in the BIND
+   9 home-directory to user =bind=:
+#+BEGIN_EXAMPLE
+chown -R bind: /etc/bind
+#+END_EXAMPLE
+ * this command checks the BIND 9 configuration for syntax errors:
+#+BEGIN_EXAMPLE
+named-checkconf -z
+#+END_EXAMPLE
+ * if no errors are reported, we can reload the new configuration into
+   the server
+#+BEGIN_EXAMPLE
+rndc reload
+#+END_EXAMPLE
+** Step 3 - DNSSEC sign the zone
+ * now we have everything in place to sign our DNS zone with DNSSEC
+#+BEGIN_EXAMPLE
+rndc sign zXX.dane.onl
+#+END_EXAMPLE
+ * a quick test if DNSSEC signing works is to ask our own DNS-server
+   for the SOA record of our zone and see if DNSSEC data will be
+   shown. We expect to see =RRSIG= records in the output:
+#+BEGIN_EXAMPLE
+dig @dns.zXX.dane.onl zXX.dane.onl SOA +dnssec +multi
+#+END_EXAMPLE
+ * now we need to create the chain-of-trust from our DNSSEC-signed
+   zone to the parent domain =dane.onl=. As a first step, we transfer
+   the zone content with all the DNSSEC data into a file on the disk
+   (file =zXX.dane.onl=)
+#+BEGIN_EXAMPLE
+dig @localhost axfr zXX.dane.onl > zXX.dane.onl
+#+END_EXAMPLE
+ * this weird looking piece of shell will generate commands for the
+   DNS dynamic update tool =nsupdate= to send the DS-Record
+   (Delegation-Signer to establish the chain-of-trust) to the parent
+   zone DNS-Servers
+#+BEGIN_EXAMPLE
+dnsXX# { echo -n "add " && \
+         dnssec-dsfromkey -T 60 -2 -f zXX.dane.onl && \
+         echo "send"; } | \
+         nsupdate -k /etc/bind/dane.key
+#+END_EXAMPLE
+ * here the same command as one line for easy cut-n-paste
+#+BEGIN_EXAMPLE
+{ echo -n "add " && dnssec-dsfromkey -T 60 -2 -f zXX.dane.onl && echo "send"; } | nsupdate -k /etc/bind/dane.key
+#+END_EXAMPLE
+ * now, if we ask an external DNS-resolver such as Cloudflare (or
+   Google DNS or Quad9) for the DS-Record our zone and see if we get
+   the records with an AD-flag back.
+#+BEGIN_EXAMPLE
+dig zXX.dane.onl ds @1.1.1.1
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 29571
+;; flags: qr rd ra ad; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+#+END_EXAMPLE
+** Step 4 - generate and add the TLSA record
+ * to finish the DANE information, we need to add the TLSA-record to
+   our zonefile. The tool =ldns-dane= is one of may available tools to
+   generate TLSA-Records from x509 certificates. *This one step must
+   be done on the mailserver!*
+#+BEGIN_EXAMPLE
+mailXX# ldns-dane -c \
+   /root/.acme.sh/mail.zXX.dane.onl/mail.zXX.dane.onl.cer \
+   create mail.zXX.dane.onl 25 3 1 1
+#+END_EXAMPLE
+ * here again the same command as one line (important: this command
+   must be executed on the mail-server, as our x509 certificate is
+   there). There are three XX to replace here:
+#+BEGIN_EXAMPLE
+ldns-dane -c /root/.acme.sh/mail.zXX.dane.onl/mail.zXX.dane.onl.cer create mail.zXX.dane.onl 25 3 1 1
+#+END_EXAMPLE
+ * if you work in a team were the dns-server and the mail-server are
+   managed from different laptop machines (and different tutorial
+   students, SSH over to the DNS-server and place the TLSA record in a
+   text file in the BIND 9 servers home-directory =/etc/bind=.
+ * copy and append TLSA record to file =/etc/bind/zonefile.db= on the
+   DNS-server machine, *increment with an text editor the SOA serial by
+   10 (1001 -> 1011)* Next we reload the zone. All new content will be
+   automatically DNSSEC signed:
+#+BEGIN_EXAMPLE
+rndc reload zXX.dane.onl
+#+END_EXAMPLE
+** Step 5 - send mail and check logs
+ * now our DANE configuration is complete. However we can't test
+   incoming DANE ourself, we need the help of a neighbor M3AAWG
+   participant. M3AAWG participants are nice, don't be shy. Ask your
+   neighbor to send a mail to you and ask her/him to check the logs
+   for a *verified* connection to your mail server
+ * in this command, *YY* is the number of the neighbor sending the
+   mail towards *XX*, which is you
+#+BEGIN_EXAMPLE
+mailYY# swaks --server localhost --tls --to user@zXX.dane.onl --from user@mail.zXX.dane.onl
+#+END_EXAMPLE
+ * if we now see the text  *Verified TLS connection* in the log files,
+   we've successfully deployed DANE on both directions
+#+BEGIN_EXAMPLE
+mailYY# tail /var/log/mail.log
+[...]
+Oct  5 23:48:38 postfix/smtp[2435]: Verified TLS connection
+established to mail.zYY.dane.onl:25: TLSv1.2 with cipher
+ECDHE-RSA-AES256-GCM-SHA384 (256/256 bits)
+#+END_EXAMPLE
