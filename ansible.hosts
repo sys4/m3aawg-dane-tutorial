@@ -1,0 +1,15 @@
+[dns]
+dns01  ansible_host=192.0.2.10
+dns02  ansible_host=192.0.2.11
+
+
+[dns:vars]
+ansible_user=root
+
+[mail]
+mail01  ansible_host=192.0.2.1
+mail02  ansible_host=192.0.2.2
+
+
+[mail:vars]
+ansible_user=root

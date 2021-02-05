@@ -1,10 +1,13 @@
 ttl 60
 server ipv6gw.strotmann.de
+del z{{ ansible_hostname[-2:] }}.dane.onl. ds
 del z{{ ansible_hostname[-2:] }}.dane.onl. ns
 del dns{{ ansible_hostname[-2:] }}.dane.onl.
+show
 send
 add dns{{ ansible_hostname[-2:] }}.dane.onl. a {{ ansible_eth0.ipv4.address }}
 add dns{{ ansible_hostname[-2:] }}.dane.onl. aaaa {{ ansible_eth0.ipv6[0].address }}
 add z{{ ansible_hostname[-2:] }}.dane.onl. ns dns{{ ansible_hostname[-2:] }}.dane.onl.
+show
 send
 quit

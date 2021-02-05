@@ -6,6 +6,8 @@
   - name: Install postfix MTA
     apt: name="{{ item }}"
     loop:
+      - man
+      - tmux
       - postfix
       - swaks
       - ldnsutils
@@ -15,6 +17,7 @@
       - mg
       - nano
       - vim
+      - cockpit
 - name: Install DANE/DNSSEC Tutorial DNS Server
   hosts: dns
   become: true
@@ -22,18 +25,23 @@
   - name: Install BIND 9 DNS-Server
     apt: name="{{ item }}"
     loop:
+      - man
+      - tmux
       - dnsutils
       - bind9
       - emacs-nox
       - mg
       - nano
       - vim
+      - cockpit
+      - git
+      - socat
   - name: Disable AppArmor
     command: "/usr/sbin/aa-teardown"
   - name: Create Key directory
     file: path="/etc/bind/keys" state="directory" mode="0750" owner="bind"
   - name: Add User
-    user: name="user" group="sudo" password="$1$daneandd$r5sbaWADTVC1cwIdSB5vw0"
+    user: name="user" group="sudo" password="$6$b5PNByZOHkUAOzJk$SBGF.8Z/0ubpuJCZDLkht3hK2VYt/n/4FQ1dndjgu84hcQorovspgChQdYBkDxPYWtRBr.ix724jSYLmtoJDU0"
   - name: Copy BIND 9 Configuration and Zonefile
     template: src="{{ item }}" dest="/etc/bind" owner="root" group="bind" mode="0440"
     loop:
@@ -42,11 +50,22 @@
       - dane.key
       - nsupdate.script
     notify: "kick_bind"
-  - name: Create Delegation
+  - name: Reload BIND 9
+    shell: "/usr/sbin/rndc reload"
+  - name: Create DNS Records and Delegation
     command: nsupdate -k /etc/bind/dane.key /etc/bind/nsupdate.script
   - name: Enable Password Authentication
     lineinfile: path="/etc/ssh/sshd_config" regexp="^#PasswordAuthentication yes" line="PasswordAuthentication yes"
     notify: "kick_ssh"
+  - name: Clone ACME.SH
+    git: repo="https://github.com/Neilpang/acme.sh" dest="/root/acme.sh"
+  - name: Get Certificate
+    shell: "/root/acme.sh/acme.sh --issue  -d dns.z{{ ansible_hostname[-2:] }}.dane.onl  --standalone"
+    ignore_errors: yes
+    args:
+      creates: "/root/.acme.sh/dns.z{{ ansible_hostname[-2:] }}.dane.onl/dns.z{{ ansible_hostname[-2:] }}.dane.onl.crt"
+  - name: set Certificate for Cockpit
+    shell: "/usr/sbin/remotectl certificate /root/.acme.sh/dns.z{{ ansible_hostname[-2:] }}.dane.onl/dns.z{{ ansible_hostname[-2:] }}.dane.onl.cer /root/.acme.sh/dns.z{{ ansible_hostname[-2:] }}.dane.onl/ca.cer /root/.acme.sh/dns.z{{ ansible_hostname[-2:] }}.dane.onl/dns.z{{ ansible_hostname[-2:] }}.dane.onl.key"
   handlers:
     - name: "kick_bind"
       service: name="bind9" state="restarted"
@@ -57,7 +76,7 @@
   become: true
   tasks:
   - name: Add User
-    user: name="user" group="sudo" password="$1$daneandd$r5sbaWADTVC1cwIdSB5vw0"
+    user: name="user" group="sudo" password="$6$b5PNByZOHkUAOzJk$SBGF.8Z/0ubpuJCZDLkht3hK2VYt/n/4FQ1dndjgu84hcQorovspgChQdYBkDxPYWtRBr.ix724jSYLmtoJDU0"
   - name: Clone ACME.SH
     git: repo="https://github.com/Neilpang/acme.sh" dest="/root/acme.sh"
   - name: Get Certificate
@@ -65,6 +84,8 @@
     ignore_errors: yes
     args:
       creates: "/root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.crt"
+  - name: set Certificate for Cockpit
+    shell: "/usr/sbin/remotectl certificate /root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.cer /root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/ca.cer /root/.acme.sh/mail.z{{ ansible_hostname[-2:] }}.dane.onl/mail.z{{ ansible_hostname[-2:] }}.dane.onl.key"
   - name: Copy Postfix configuration
     template: src="{{ item }}" dest="/etc/postfix" owner="root" group="postfix" mode="0644"
     loop:
